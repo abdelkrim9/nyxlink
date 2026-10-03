@@ -1,0 +1,8 @@
+{
+  "name": "nyxlink",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NYX//LINK — compagnon vocal de vie perso, nourri par le vault Netrunner Cerebrum",
+  "scripts": { "test": "node --test" }
+}

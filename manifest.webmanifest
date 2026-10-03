@@ -1,0 +1,17 @@
+{
+  "name": "NYX//LINK",
+  "short_name": "NYX//LINK",
+  "description": "NYX, ton compagnon de vie perso, nourri par ton vault.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070b0f",
+  "theme_color": "#070b0f",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
