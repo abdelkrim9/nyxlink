@@ -5,6 +5,8 @@ import { SUGGESTIONS } from './persona.js';
 import { createSpeaker, createMic, GEMINI_VOICES } from './voice.js';
 import { createBody } from './nyx-body.js';
 import { newConversation, saveConversation, deleteConversation, getConversation, listConversations, titleFrom } from './store.js';
+import { createCloud, authErrorMessage } from './cloud.js';
+import { enAttente, aPurger, digestPlusRecent } from './sync.js';
 
 const $ = id => document.getElementById(id);
 const SLEEP_MS = 90000;
@@ -38,6 +40,36 @@ const mic = createMic(window, {
   onState: () => render(),
   onError: msg => toast('// ' + msg)
 });
+
+// ── Synchro vers le vault (Firebase `nyxlink`)
+const cloud = createCloud({ onUser: u => { if ($('settingsSheet').classList.contains('open')) renderSettings(); if (u) { deposerTout(); recevoirDigest(); } } });
+
+/** Dépose la conversation dans la boîte d'envoi ; sans connexion, elle attend la prochaine occasion. */
+async function deposer(c) {
+  if (!cloud.user || !enAttente(c)) return;
+  try {
+    await cloud.push(c);
+    // Une réponse arrivée pendant le dépôt a remis `synced` à faux : elle repartira.
+    const fraiche = await getConversation(c.id);
+    if (fraiche && fraiche.updatedAt === c.updatedAt) { fraiche.synced = true; await saveConversation(fraiche); if (st.conv && st.conv.id === c.id) st.conv.synced = true; }
+  } catch (_) { /* reste en attente */ }
+}
+async function deposerTout() {
+  if (!cloud.user) return;
+  for (const c of await listConversations()) if (enAttente(c)) await deposer(c);
+}
+
+let digestVerifie = 0;
+async function recevoirDigest() {
+  if (!cloud.user || Date.now() - digestVerifie < 36e5) return;
+  digestVerifie = Date.now();
+  try {
+    const d = await cloud.fetchDigest();
+    if (!digestPlusRecent(d, cfg.get('digestAt'))) return;
+    cfg.set('digest', d.text); cfg.set('digestAt', d.at); cfg.set('digestDate', 'du Mac, ' + d.at.slice(0, 10));
+    render(); toast('// RÉSUMÉ DU VAULT MIS À JOUR');
+  } catch (_) { digestVerifie = 0; }
+}
 
 function mood() {
   return mic.on ? 'listening' : st.busy ? 'thinking' : st.asleep ? 'sleep' : 'idle';
@@ -88,8 +120,10 @@ async function ask(q, { oral = false } = {}) {
   } finally {
     st.busy = false;
     c.updatedAt = new Date().toISOString();
+    c.synced = false;
     await saveConversation(c).catch(() => toast('// SAUVEGARDE IMPOSSIBLE SUR CE TÉLÉPHONE'));
     render();
+    deposer(c);
   }
 }
 
@@ -156,7 +190,7 @@ async function renderConvs() {
   $('convList').innerHTML = all.filter(c => c.view.length).map(c => `
     <li class="conv${st.conv && c.id === st.conv.id ? ' cur' : ''}">
       <button class="conv-open" data-id="${c.id}"><span class="conv-t">${esc(c.title || 'Sans titre')}</span>
-        <span class="conv-d">${fmt(c.updatedAt)}${c.horsVault ? ' · hors vault' : ''}</span></button>
+        <span class="conv-d">${fmt(c.updatedAt)}${c.horsVault ? ' · hors vault' : cloud.configured && enAttente(c) ? ' · en attente' : ''}</span></button>
       <button class="conv-del" data-del="${c.id}" aria-label="Supprimer">✕</button>
     </li>`).join('') || '<li class="empty">Aucune conversation pour l\'instant.</li>';
 }
@@ -168,7 +202,18 @@ function renderSettings() {
   $('voiceSel').innerHTML = GEMINI_VOICES.map(v => `<option${v === (cfg.get('geminiVoice') || 'Algenib') ? ' selected' : ''}>${v}</option>`).join('');
   const d = cfg.get('digest');
   $('digest').value = d;
+  renderSync();
   $('digestInfo').textContent = d ? `${d.length.toLocaleString('fr-CA')} caractères · ~${Math.round(d.length / 3.6).toLocaleString('fr-CA')} jetons · ${cfg.get('digestDate') || 'date inconnue'}` : 'Aucun résumé : NYX ne te connaît pas encore.';
+}
+
+async function renderSync() {
+  const u = cloud.user;
+  $('syncLogin').hidden = !cloud.configured || !!u;
+  $('syncOut').hidden = !u;
+  if (!cloud.configured) { $('syncStatus').textContent = '// PROJET FIREBASE PAS ENCORE BRANCHÉ'; return; }
+  if (!u) { $('syncStatus').textContent = '// NON CONNECTÉ : TES CONVERSATIONS RESTENT ICI'; return; }
+  const attente = (await listConversations()).filter(enAttente).length;
+  $('syncStatus').textContent = `// CONNECTÉ : ${u.email} · ${attente ? attente + ' en attente de dépôt' : 'tout est déposé'}`;
 }
 
 async function startConversation(c) {
@@ -200,13 +245,20 @@ function wire() {
     // Deux appuis pour supprimer : le premier arme le bouton, le second confirme.
     if (!d.classList.contains('armed')) { d.classList.add('armed'); d.textContent = 'SUPPRIMER ?'; return; }
     await deleteConversation(d.dataset.del);
+    if (cloud.user) cloud.remove(d.dataset.del).catch(() => {});
     if (st.conv && st.conv.id === d.dataset.del) st.conv = newConversation();
     renderConvs(); render();
   });
   $('horsVault').addEventListener('click', async () => {
-    st.conv.horsVault = !st.conv.horsVault;
-    if (st.conv.view.length) await saveConversation(st.conv);
-    toast(st.conv.horsVault ? '// CETTE CONVERSATION RESTERA SUR LE TÉLÉPHONE' : '// CETTE CONVERSATION REJOINDRA TON VAULT');
+    const c = st.conv, deposee = c.synced;
+    c.horsVault = !c.horsVault;
+    c.synced = false;
+    if (c.view.length) await saveConversation(c);
+    if (c.horsVault && deposee && cloud.user) cloud.remove(c.id).catch(() => {});
+    if (!c.horsVault) deposer(c);
+    toast(!c.horsVault ? '// CETTE CONVERSATION REJOINDRA TON VAULT'
+      : deposee ? '// RETIRÉE DE LA FILE — SI LE MAC L\'A DÉJÀ TIRÉE, ELLE EST DANS LE VAULT'
+      : '// CETTE CONVERSATION RESTERA SUR LE TÉLÉPHONE');
     render();
   });
   $('voiceToggle').addEventListener('click', () => {
@@ -230,6 +282,7 @@ function wire() {
   $('saveDigest').addEventListener('click', () => {
     cfg.set('digest', $('digest').value.trim());
     cfg.set('digestDate', new Date().toLocaleDateString('fr-CA'));
+    cfg.set('digestAt', new Date().toISOString());
     renderSettings(); render(); toast('// RÉSUMÉ DU VAULT ENREGISTRÉ');
   });
   $('digestFile').addEventListener('change', async e => {
@@ -239,6 +292,15 @@ function wire() {
     $('digest').value = await f.text();
     toast('// FICHIER CHARGÉ — APPUIE SUR ENREGISTRER');
   });
+  $('syncIn').addEventListener('click', async () => {
+    const email = $('syncEmail').value.trim(), pass = $('syncPass').value;
+    if (!email || !pass) { toast('// COURRIEL ET MOT DE PASSE'); return; }
+    try { await cloud.signIn(email, pass); $('syncPass').value = ''; toast('// LIAISON AVEC LE VAULT ÉTABLIE'); }
+    catch (e) { toast('// CONNEXION : ' + authErrorMessage(e.code)); }
+  });
+  $('syncOutBtn').addEventListener('click', async () => { await cloud.signOut(); renderSettings(); toast('// DÉCONNECTÉ'); });
+  addEventListener('online', deposerTout);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { deposerTout(); recevoirDigest(); } });
   addEventListener('pointermove', e => { st.bodies.forEach(b => b.lookAt(e.clientX, e.clientY)); activity(); }, { passive: true });
   addEventListener('pointerdown', activity, { passive: true });
   addEventListener('keydown', e => { activity(); if (e.key === 'Escape') closeSheets(); });
@@ -250,6 +312,9 @@ async function boot() {
   wire();
   const last = cfg.get('lastConv') && await getConversation(cfg.get('lastConv')).catch(() => null);
   await startConversation(last || null);
+  // Trente jours sur le téléphone ; ce qui n'est pas encore déposé reste.
+  for (const id of aPurger(await listConversations(), new Date(), st.conv.id)) await deleteConversation(id).catch(() => {});
+  cloud.start().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 boot();

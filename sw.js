@@ -1,8 +1,8 @@
 // Cache de l'app : elle s'ouvre hors ligne. Les appels aux API (Claude, Gemini) ne passent
 // jamais par le cache. Changer VERSION à chaque livraison force la mise à jour.
-const VERSION = 'nyxlink-0.1.0';
+const VERSION = 'nyxlink-0.2.0';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './src/app.js', './src/agent.js', './src/persona.js',
-  './src/voice.js', './src/nyx-body.js', './src/store.js', './icons/icon-192.png'];
+  './src/voice.js', './src/nyx-body.js', './src/store.js', './src/sync.js', './src/cloud.js', './src/firebase-config.js', './icons/icon-192.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

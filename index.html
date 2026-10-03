@@ -22,6 +22,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
 html,body{height:100%;background:var(--bg);color:var(--text1)}
 body{font-family:var(--f-body);font-size:16px;line-height:1.5;display:flex;flex-direction:column;overflow:hidden;
   background:radial-gradient(ellipse at 50% 18%,rgba(180,79,255,.12),transparent 55%),var(--bg)}
@@ -185,8 +186,18 @@ textarea.field{width:100%;min-height:180px;resize:vertical;font-size:12px;line-h
       <div class="status" id="geminiStatus"></div>
     </div>
     <div class="group">
+      <h3>SYNCHRO VAULT</h3>
+      <p>Connecté, tes conversations partent vers le Mac, qui les range chaque soir à 22 h dans <code>raw/conversations/</code> puis les efface du nuage. Celles marquées « hors vault » ne partent jamais.</p>
+      <div id="syncLogin" hidden>
+        <div class="row"><input class="field" id="syncEmail" type="email" placeholder="courriel" autocomplete="username"></div>
+        <div class="row"><input class="field" id="syncPass" type="password" placeholder="mot de passe" autocomplete="current-password"><button class="btn" id="syncIn" type="button">CONNEXION</button></div>
+      </div>
+      <div class="row" id="syncOut" hidden><button class="btn ghost" id="syncOutBtn" type="button">DÉCONNECTER</button></div>
+      <div class="status" id="syncStatus"></div>
+    </div>
+    <div class="group">
       <h3>RÉSUMÉ DE TON VAULT</h3>
-      <p>Ce que NYX sait de toi. Sur le Mac, lance <code>tools/vault-digest.py</code>, envoie-toi le fichier, puis charge-le ici. En phase 2, il arrivera tout seul.</p>
+      <p>Ce que NYX sait de toi. Connecté à la synchro, le Mac te l'envoie chaque soir. Sinon : lance <code>tools/vault-digest.py</code> sur le Mac, envoie-toi le fichier, puis charge-le ici.</p>
       <div class="row"><input class="file" id="digestFile" type="file" accept=".md,.txt,text/markdown,text/plain" aria-label="Charger le fichier du résumé"></div>
       <textarea class="field" id="digest" placeholder="Ou colle le résumé ici…" aria-label="Résumé du vault"></textarea>
       <div class="row" style="margin-top:8px"><button class="btn" id="saveDigest" type="button">ENREGISTRER LE RÉSUMÉ</button></div>
